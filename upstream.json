@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "upstreamVersion": "4.22.7",
+  "upstreamRepository": "yairm210/Unciv",
+  "upstreamCommit": "9c79f42cca66f8b3b7c91270bcd72ee65dcae1a2",
+  "cityTableSha256": "21109d210129635cc4a279a792e8da555927aebb1e1ebe4c8ffd534953113124",
+  "applicationId": "com.unciv.bulkpurchase"
+}

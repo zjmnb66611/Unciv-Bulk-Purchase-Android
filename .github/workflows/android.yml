@@ -1,0 +1,82 @@
+name: 安卓队列购买构建
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: 读取补丁源码
+        uses: actions/checkout@v5
+      - name: 读取固定的原版提交
+        id: upstream
+        run: echo "sha=$(python3 -c 'import json; print(json.load(open("upstream.json"))["upstreamCommit"])')" >> "$GITHUB_OUTPUT"
+      - name: 获取官方4.22.7源码
+        uses: actions/checkout@v5
+        with:
+          repository: yairm210/Unciv
+          ref: ${{ steps.upstream.outputs.sha }}
+          path: upstream
+      - name: 配置Java21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: 配置Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: 配置Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: 应用补丁
+        run: python3 apply_patch.py upstream
+      - name: 恢复私有应用签名
+        env:
+          SIGNING_STORE: ${{ secrets.UNCIV_ANDROID_SIGNING_STORE }}
+        run: |
+          test -n "$SIGNING_STORE"
+          printf '%s' "$SIGNING_STORE" | base64 --decode > upstream/android/bulk-purchase.jks
+      - name: 执行金币购买原生测试并构建APK
+        working-directory: upstream
+        env:
+          UNCIV_SIGNING_PASSWORD: ${{ secrets.UNCIV_ANDROID_SIGNING_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew :tests:test --tests com.unciv.logic.city.BulkPurchaseTest :android:assembleRelease --no-daemon --stacktrace
+      - name: 校验APK签名、入口、包名和补丁类
+        run: |
+          mkdir -p dist
+          APK=$(find upstream/android/build/outputs/apk/release -name '*.apk' | head -1)
+          test -n "$APK"
+          TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee dist/签名校验.txt
+          "$TOOLS/aapt" dump badging "$APK" | tee dist/APK信息.txt
+          grep "package: name='com.unciv.bulkpurchase'" dist/APK信息.txt
+          grep "launchable-activity: name='com.unciv.app.AndroidLauncher'" dist/APK信息.txt
+          mkdir dex-check
+          unzip -o "$APK" 'classes*.dex' -d dex-check
+          grep -al 'AndroidLauncher' dex-check/classes*.dex
+          grep -al 'BulkPurchaseUI' dex-check/classes*.dex
+          grep -al 'Lcom/unciv/logic/city/BulkPurchase;' dex-check/classes*.dex
+          cp "$APK" dist/Unciv-Bulk-Purchase-Android-4.22.7-1.0.0.apk
+          cd dist
+          sha256sum Unciv-Bulk-Purchase-Android-4.22.7-1.0.0.apk > Unciv-Bulk-Purchase-Android-4.22.7-1.0.0.apk.sha256.txt
+      - name: 保存APK和测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-bulk-purchase-4.22.7
+          path: |
+            dist/
+            upstream/tests/build/reports/tests/test/
+            upstream/tests/build/test-results/test/
+          if-no-files-found: warn
+          retention-days: 30
