@@ -1,6 +1,7 @@
 package com.unciv.logic.city
 
 import com.unciv.models.stats.Stat
+import com.unciv.models.ruleset.RulesetCache
 import com.unciv.testing.BaseTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert.*
@@ -11,6 +12,12 @@ import org.junit.runner.RunWith
 class BulkPurchaseTest {
     private fun fixture(): Pair<TestGame, City> {
         val game = TestGame()
+        // TestGame克隆的是尚未折算科技列建筑成本的基础规则。
+        // 使用与真实开局相同的原生组合流程初始化价格，避免把cost=-1当成免费建筑。
+        val initialized = RulesetCache.getComplexRuleset(game.ruleset, emptyList())
+        for ((name, building) in game.ruleset.buildings)
+            building.cost = initialized.buildings[name]!!.cost
+        check(game.ruleset.buildings["Library"]!!.cost > 0)
         game.makeHexagonalMap(5, "Grassland")
         val civ = game.addCiv(isPlayer = true)
         civ.tech.addTechnology("Pottery")
@@ -73,10 +80,10 @@ class BulkPurchaseTest {
 
     @Test fun skipsWonderAndPerpetualProject() {
         val (_, city) = fixture()
-        queue(city, "Great Library", "Granary", "Gold")
+        queue(city, "The Great Library", "Granary", "Gold")
         val result = buy(city)
         assertEquals(1, result.bought)
-        assertFalse(city.cityConstructions.isBuilt("Great Library"))
+        assertFalse(city.cityConstructions.isBuilt("The Great Library"))
         assertTrue(city.cityConstructions.isBuilt("Granary"))
     }
 
